@@ -1,4 +1,4 @@
-name: تلگرام دانلودر (هوشمند – حذف قبل از checkout)
+name: تلگرام دانلودر (حذف موازی قبل از checkout)
 
 on:
   workflow_dispatch:
@@ -13,17 +13,17 @@ on:
         type: number
         default: 90
       subfolder:
-        description: '📁 زیرپوشهٔ دلخواه در downloads (اختیاری)'
+        description: '📁 زیرپوشهٔ دلخواه در downloads (اختیاری؛ خالی = مستقیم داخل downloads)'
         required: false
         type: string
         default: ''
       custom_filename:
-        description: '✏️ نام فایل دلخواه (فقط برای تک‌فایل)'
+        description: '✏️ نام فایل دلخواه (فقط وقتی یک فایل دانلود شود؛ پسوند اصلی حفظ می‌شود)'
         required: false
         type: string
         default: ''
       clean_previous:
-        description: '🗑️ پاک‌سازی همهٔ فایل‌های downloads قبل از دانلود (پیشنهاد: تیک بخورد)'
+        description: '🗑️ پاک‌سازی همهٔ فایل‌های downloads قبل از دانلود (پیشنهاد می‌شود تیک خورده باشد)'
         required: false
         type: boolean
         default: true
@@ -39,9 +39,9 @@ jobs:
 
     steps:
       # ──────────────────────────────────────
-      # قدم اول: حذف فایل‌های قدیمی روی سرور گیتهاب (بدون checkout)
+      # قدم اول: حذف فایل‌های قدیمی روی سرور گیتهاب (موازی)
       # ──────────────────────────────────────
-      - name: 🗑️ حذف محتوای downloads روی سرور (API)
+      - name: 🗑️ حذف محتوای downloads روی سرور (موازی)
         if: github.event.inputs.clean_previous == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -60,27 +60,22 @@ jobs:
             exit 0
           fi
 
-          # اگر فایلی نیست
           COUNT=$(echo "$FILES" | jq '. | length')
           if [ "$COUNT" -eq 0 ]; then
             echo "📂 پوشهٔ downloads خالی است."
             exit 0
           fi
 
-          echo "🔍 $COUNT فایل پیدا شد – در حال حذف یکی‌یکی..."
-          for row in $(echo "$FILES" | jq -r '.[] | @base64'); do
-            _jq() { echo "$row" | base64 --decode | jq -r "$1"; }
-            NAME=$(_jq '.name')
-            SHA=$(_jq '.sha')
-            PATH_URL="downloads/${NAME}"
-            echo "   🗑️ حذف $NAME ..."
-            curl -s -X DELETE \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/contents/${PATH_URL}" \
-              -d "{\"message\":\"پاک‌سازی پیش از دانلود\",\"sha\":\"${SHA}\",\"branch\":\"${BRANCH}\"}" \
-              > /dev/null
-          done
+          echo "🔍 $COUNT فایل پیدا شد – حذف موازی با ۱۰ نخ..."
+
+          # استخراج نام و SHA و ساخت دستورات curl برای حذف
+          echo "$FILES" | jq -r '.[] | "\(.name)|\(.sha)"' | while IFS='|' read -r NAME SHA; do
+            echo "curl -s -X DELETE -H \"Authorization: Bearer ${GH_TOKEN}\" \
+              -H \"Accept: application/vnd.github+json\" \
+              \"https://api.github.com/repos/${REPO}/contents/downloads/${NAME}\" \
+              -d '{\"message\":\"پاک‌سازی پیش از دانلود\",\"sha\":\"${SHA}\",\"branch\":\"${BRANCH}\"}'"
+          done | xargs -I {} -P 10 bash -c "{} > /dev/null 2>&1 && echo '🗑️ حذف شد'"
+
           echo "✅ همهٔ فایل‌های قبلی از سرور حذف شدند."
 
       # ──────────────────────────────────────
@@ -94,7 +89,7 @@ jobs:
           fetch-depth: 1
 
       # ──────────────────────────────────────
-      # بقیه مراحل مثل قبل
+      # بقیه مراحل
       # ──────────────────────────────────────
       - name: 🔧 نصب ابزارهای ضروری
         run: |
@@ -366,3 +361,4 @@ jobs:
               fi
             fi
           done
+          
